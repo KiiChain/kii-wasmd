@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-
 	"github.com/CosmWasm/wasmd/x/wasm/keeper"
 
 	"github.com/cosmos/cosmos-sdk/store"
@@ -163,9 +161,9 @@ func TestLimitSimulationGasDecorator(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			nextAnte := consumeGasAnteHandler(spec.consumeGas)
 			ctx := sdk.Context{}.
-				WithGasMeter(sdk.NewInfiniteGasMeter()).
-				WithConsensusParams(&abci.ConsensusParams{
-					Block: &abci.BlockParams{MaxGas: spec.maxBlockGas},
+				WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)).
+				WithConsensusParams(&tmproto.ConsensusParams{
+					Block: &tmproto.BlockParams{MaxGas: spec.maxBlockGas},
 				})
 			// when
 			if spec.expErr != nil {

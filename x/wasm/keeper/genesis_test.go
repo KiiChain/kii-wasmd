@@ -70,7 +70,7 @@ func TestGenesisExportImport(t *testing.T) {
 			anyTime := time.Now().UTC()
 			var nestedType govtypes.TextProposal
 			f.NilChance(0).Fuzz(&nestedType)
-			myExtension, err := govtypes.NewProposal(&nestedType, 1, anyTime, anyTime)
+			myExtension, err := govtypes.NewProposal(&nestedType, 1, anyTime, anyTime, false)
 			require.NoError(t, err)
 			contract.SetExtension(&myExtension)
 		}
@@ -548,7 +548,7 @@ func TestImportContractWithCodeHistoryPreserved(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, importState.ValidateBasic(), genesisStr)
 
-	ctx = ctx.WithBlockHeight(0).WithGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithBlockHeight(0).WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	// when
 	_, err = InitGenesis(ctx, keeper, importState)

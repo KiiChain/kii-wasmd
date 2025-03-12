@@ -204,7 +204,7 @@ func (c *ContractInfo) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 func NewAbsoluteTxPosition(ctx sdk.Context) *AbsoluteTxPosition {
 	// we must safely handle nil gas meters
 	var index uint64
-	meter := ctx.BlockGasMeter()
+	meter := ctx.GasMeter()
 	if meter != nil {
 		index = meter.GasConsumed()
 	}

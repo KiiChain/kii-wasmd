@@ -173,7 +173,7 @@ func TestContractAuthzFilterAccept(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			gm := sdk.NewGasMeter(1_000_000)
+			gm := sdk.NewGasMeter(1_000_000, 1, 1)
 			allowed, gotErr := spec.filter.Accept(sdk.Context{}.WithGasMeter(gm), spec.src)
 
 			// then
@@ -707,7 +707,7 @@ func TestAcceptGrantedMessage(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			ctx := sdk.Context{}.WithGasMeter(sdk.NewInfiniteGasMeter())
+			ctx := sdk.Context{}.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
 			gotResult, gotErr := spec.auth.Accept(ctx, spec.msg)
 			if spec.expErr != nil {
 				require.ErrorIs(t, gotErr, spec.expErr)

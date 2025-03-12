@@ -79,6 +79,32 @@ func (b AppModuleBasic) ValidateGenesis(marshaler codec.JSONCodec, config client
 	return ValidateGenesis(data)
 }
 
+// ValidateGenesisStream validate the genesis as a stream
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	var err error
+	doneCh := make(chan struct{})
+	genesisStateCh := make(chan GenesisState)
+	go func() {
+		err = types.ValidateGenesisStream(genesisStateCh)
+		doneCh <- struct{}{}
+	}()
+	go func() {
+		defer close(genesisStateCh)
+		for genesis := range genesisCh {
+			var data GenesisState
+			err_ := cdc.UnmarshalJSON(genesis, &data)
+			if err_ != nil {
+				err = err_
+				doneCh <- struct{}{}
+				return
+			}
+			genesisStateCh <- data
+		}
+	}()
+	<-doneCh
+	return err
+}
+
 // RegisterRESTRoutes registers the REST routes for the wasm module.
 func (AppModuleBasic) RegisterRESTRoutes(cliCtx client.Context, rtr *mux.Router) {
 	rest.RegisterRoutes(cliCtx, rtr)
@@ -180,6 +206,19 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
 	gs := ExportGenesis(ctx, am.keeper)
 	return cdc.MustMarshalJSON(gs)
+}
+
+// ExportGenesisStream export the genesis as a stream
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
+	ch := ExportGenesisStream(ctx, am.keeper)
+	chRaw := make(chan json.RawMessage)
+	go func() {
+		for genState := range ch {
+			chRaw <- cdc.MustMarshalJSON(genState)
+		}
+		close(chRaw)
+	}()
+	return chRaw
 }
 
 // BeginBlock returns the begin blocker for the wasm module.

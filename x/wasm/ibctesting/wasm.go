@@ -3,12 +3,13 @@ package ibctesting
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
-	ibctesting "github.com/cosmos/ibc-go/v4/testing"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/golang/protobuf/proto" //nolint
@@ -107,7 +108,7 @@ func (chain *TestChain) SmartQuery(contractAddr string, queryMsg interface{}, re
 	}
 
 	// TODO: what is the query?
-	res := chain.App.Query(abci.RequestQuery{
+	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
 		Path: "/cosmwasm.wasm.v1.Query/SmartContractState",
 		Data: reqBin,
 	})

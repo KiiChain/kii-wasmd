@@ -17,7 +17,6 @@ import (
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	stypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -300,7 +299,7 @@ func TestCreateWithSimulation(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 
 	ctx = ctx.WithBlockHeader(tmproto.Header{Height: 1}).
-		WithGasMeter(stypes.NewInfiniteGasMeter())
+		WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
 	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
@@ -312,7 +311,7 @@ func TestCreateWithSimulation(t *testing.T) {
 
 	// then try to create it in non-simulation mode (should not fail)
 	ctx, keepers = CreateTestInput(t, false, AvailableCapabilities)
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(10_000_000))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 10_000_000))
 	creator = keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
 	contractID, _, err = keepers.ContractKeeper.Create(ctx, creator, hackatomWasm, nil)
 
@@ -331,15 +330,15 @@ func TestIsSimulationMode(t *testing.T) {
 		exp bool
 	}{
 		"genesis block": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{}).WithGasMeter(stypes.NewInfiniteGasMeter()),
+			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
 			exp: false,
 		},
 		"any regular block": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(stypes.NewGasMeter(10000000)),
+			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(sdk.NewGasMeter(10000000, 1, 1)),
 			exp: false,
 		},
 		"simulation": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(stypes.NewInfiniteGasMeter()),
+			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
 			exp: true,
 		},
 	}
@@ -379,7 +378,7 @@ func TestCreateWithBrokenGzippedPayload(t *testing.T) {
 	wasmCode, err := os.ReadFile("./testdata/broken_crc.gzip")
 	require.NoError(t, err, "reading gzipped WASM code")
 
-	gm := sdk.NewInfiniteGasMeter()
+	gm := sdk.NewInfiniteGasMeterWithMultiplier(ctx)
 	codeID, checksum, err := keeper.Create(ctx.WithGasMeter(gm), creator, wasmCode, nil)
 	require.Error(t, err)
 	assert.Empty(t, codeID)
@@ -600,7 +599,7 @@ func TestInstantiateWithAccounts(t *testing.T) {
 		"prunable DelayedVestingAccount gets overwritten": {
 			account: vestingtypes.NewDelayedVestingAccount(
 				authtypes.NewBaseAccount(contractAddr, nil, 0, 0),
-				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix()),
+				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix(), nil),
 			initBalance: sdk.NewCoin("denom", sdk.NewInt(1_000)),
 			deposit:     sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1))),
 			expAccount:  authtypes.NewBaseAccount(contractAddr, nil, lastAccountNumber+2, 0), // +1 for next seq, +1 for spec.account created
@@ -609,7 +608,7 @@ func TestInstantiateWithAccounts(t *testing.T) {
 		"prunable ContinuousVestingAccount gets overwritten": {
 			account: vestingtypes.NewContinuousVestingAccount(
 				authtypes.NewBaseAccount(contractAddr, nil, 0, 0),
-				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix()),
+				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix(), nil),
 			initBalance: sdk.NewCoin("denom", sdk.NewInt(1_000)),
 			deposit:     sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1))),
 			expAccount:  authtypes.NewBaseAccount(contractAddr, nil, lastAccountNumber+2, 0), // +1 for next seq, +1 for spec.account created
@@ -618,7 +617,7 @@ func TestInstantiateWithAccounts(t *testing.T) {
 		"prunable account without balance gets overwritten": {
 			account: vestingtypes.NewContinuousVestingAccount(
 				authtypes.NewBaseAccount(contractAddr, nil, 0, 0),
-				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(0))), time.Now().Add(time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix()),
+				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(0))), time.Now().Add(time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix(), nil),
 			expAccount: authtypes.NewBaseAccount(contractAddr, nil, lastAccountNumber+2, 0), // +1 for next seq, +1 for spec.account created
 			expBalance: sdk.NewCoins(),
 		},
@@ -634,11 +633,11 @@ func TestInstantiateWithAccounts(t *testing.T) {
 			option: WithAcceptedAccountTypesOnContractInstantiation(&vestingtypes.DelayedVestingAccount{}),
 			account: vestingtypes.NewDelayedVestingAccount(
 				authtypes.NewBaseAccount(contractAddr, nil, 0, 0),
-				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix()),
+				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix(), nil),
 			initBalance: sdk.NewCoin("denom", sdk.NewInt(1_000)),
 			deposit:     sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1))),
 			expAccount: vestingtypes.NewDelayedVestingAccount(authtypes.NewBaseAccount(contractAddr, nil, lastAccountNumber+1, 0),
-				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix()),
+				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix(), nil),
 			expBalance: sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_001))),
 		},
 		"pruning account fails": {
@@ -647,7 +646,7 @@ func TestInstantiateWithAccounts(t *testing.T) {
 			}}),
 			account: vestingtypes.NewDelayedVestingAccount(
 				authtypes.NewBaseAccount(contractAddr, nil, 0, 0),
-				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix()),
+				sdk.NewCoins(sdk.NewCoin("denom", sdk.NewInt(1_000))), time.Now().Add(30*time.Hour).Unix(), nil),
 			expErr: types.ErrUnsupportedForContract,
 		},
 	}
@@ -837,7 +836,7 @@ func TestExecute(t *testing.T) {
 	assert.Equal(t, deposit, bankKeeper.GetAllBalances(ctx, contractAcct.GetAddress()))
 
 	// unauthorized - trialCtx so we don't change state
-	trialCtx := ctx.WithMultiStore(ctx.MultiStore().CacheWrap().(sdk.MultiStore))
+	trialCtx := ctx.WithMultiStore(ctx.MultiStore().CacheWrap(keepers.WasmKeeper.storeKey).(sdk.MultiStore))
 	res, err := keepers.ContractKeeper.Execute(trialCtx, addr, creator, []byte(`{"release":{}}`), nil)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, types.ErrExecuteFailed))
@@ -1040,7 +1039,7 @@ func TestExecuteWithCpuLoop(t *testing.T) {
 
 	// make sure we set a limit before calling
 	var gasLimit uint64 = 400_000
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimit))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	require.Equal(t, uint64(0), ctx.GasMeter().GasConsumed())
 
 	// ensure we get an out of gas panic
@@ -1082,7 +1081,7 @@ func TestExecuteWithStorageLoop(t *testing.T) {
 
 	// make sure we set a limit before calling
 	var gasLimit uint64 = 400_002
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimit))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	require.Equal(t, uint64(0), ctx.GasMeter().GasConsumed())
 
 	// ensure we get an out of gas panic
@@ -1849,7 +1848,7 @@ func TestPinnedContractLoops(t *testing.T) {
 			},
 		}, 0, nil
 	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(20000))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 20000))
 	require.PanicsWithValue(t, sdk.ErrorOutOfGas{Descriptor: "ReadFlat"}, func() {
 		_, err := k.execute(ctx, example.Contract, RandomAccountAddress(t), anyMsg, nil)
 		require.NoError(t, err)
@@ -2189,7 +2188,7 @@ func TestCoinBurnerPruneBalances(t *testing.T) {
 
 	// create vesting account
 	var vestingAddr sdk.AccAddress = rand.Bytes(types.ContractAddrLen)
-	msgCreateVestingAccount := vestingtypes.NewMsgCreateVestingAccount(senderAddr, vestingAddr, amts, time.Now().Add(time.Minute).Unix(), false)
+	msgCreateVestingAccount := vestingtypes.NewMsgCreateVestingAccount(senderAddr, vestingAddr, amts, time.Now().Add(time.Minute).Unix(), false, nil)
 	_, err := vesting.NewMsgServerImpl(keepers.AccountKeeper, keepers.BankKeeper).CreateVestingAccount(sdk.WrapSDKContext(parentCtx), msgCreateVestingAccount)
 	require.NoError(t, err)
 	myVestingAccount := keepers.AccountKeeper.GetAccount(parentCtx, vestingAddr)
@@ -2230,7 +2229,7 @@ func TestCoinBurnerPruneBalances(t *testing.T) {
 			keepers.AccountKeeper.SetAccount(ctx, keepers.AccountKeeper.NewAccountWithAddress(ctx, vestingAddr))
 
 			// when
-			noGasCtx := ctx.WithGasMeter(sdk.NewGasMeter(0)) // should not use callers gas
+			noGasCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 0)) // should not use callers gas
 			gotHandled, gotErr := NewVestingCoinBurner(keepers.BankKeeper).CleanupExistingAccount(noGasCtx, existingAccount)
 			// then
 			if spec.expErr != nil {

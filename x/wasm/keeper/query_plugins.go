@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	channeltypes "github.com/cosmos/ibc-go/v4/modules/core/04-channel/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 
@@ -48,7 +48,7 @@ func (q QueryHandler) Query(request wasmvmtypes.QueryRequest, gasLimit uint64) (
 	// set a limit for a subCtx
 	sdkGas := q.gasRegister.FromWasmVMGas(gasLimit)
 	// discard all changes/ events in subCtx by not committing the cached context
-	subCtx, _ := q.Ctx.WithGasMeter(sdk.NewGasMeter(sdkGas)).CacheContext()
+	subCtx, _ := q.Ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(q.Ctx, sdkGas)).CacheContext()
 
 	// make sure we charge the higher level context even on panic
 	defer func() {
