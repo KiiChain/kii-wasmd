@@ -19,6 +19,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp/helpers"
 	"github.com/cosmos/cosmos-sdk/snapshots"
+	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -463,12 +464,7 @@ func NewPubKeyFromHex(pk string) (res cryptotypes.PubKey) {
 }
 
 // EmptyBaseAppOptions is a stub implementing AppOptions
-type EmptyBaseAppOptions struct{}
-
-// Get implements AppOptions
-func (ao EmptyBaseAppOptions) Get(o string) interface{} {
-	return nil
-}
+type EmptyBaseAppOptions = testutil.TestAppOpts
 
 // FundAccount is a utility function that funds an account by minting and
 // sending the coins to the address. This should be used for testing purposes
