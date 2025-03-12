@@ -62,11 +62,18 @@ type LimitSimulationGasDecorator struct {
 }
 
 // NewLimitSimulationGasDecorator constructor accepts nil value to fallback to block gas limit.
-func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas) *LimitSimulationGasDecorator {
+func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas, gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context) *LimitSimulationGasDecorator {
 	if gasLimit != nil && *gasLimit == 0 {
 		panic("gas limit must not be zero")
 	}
-	return &LimitSimulationGasDecorator{gasLimit: gasLimit}
+	return &LimitSimulationGasDecorator{gasLimit, gasMeterSetter}
+}
+
+// DefaultGasMeterSetter returns a default gas meter
+func DefaultGasMeterSetter() func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
+	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
+		return ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
+	}
 }
 
 // AnteHandle that limits the maximum gas available in simulations only.
