@@ -203,18 +203,14 @@ func (c *ContractInfo) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 // NewAbsoluteTxPosition gets a block position from the context
 func NewAbsoluteTxPosition(ctx sdk.Context) *AbsoluteTxPosition {
 	// we must safely handle nil gas meters
-	var index uint64
-	meter := ctx.GasMeter()
-	if meter != nil {
-		index = meter.GasConsumed()
-	}
+	index := ctx.TxIndex()
 	height := ctx.BlockHeight()
 	if height < 0 {
 		panic(fmt.Sprintf("unsupported height: %d", height))
 	}
 	return &AbsoluteTxPosition{
 		BlockHeight: uint64(height),
-		TxIndex:     index,
+		TxIndex:     uint64(index),
 	}
 }
 
