@@ -192,7 +192,7 @@ func NewTestChainWithValSet(t *testing.T, coord *Coordinator, chainID string, va
 		senderAccs = append(senderAccs, senderAcc)
 	}
 
-	wasmApp := app.SetupWithGenesisValSet(t, valSet, genAccs, chainID, opts, genBals...)
+	wasmApp := app.SetupWithGenesisValSet(t, valSet, genAccs, opts, genBals...)
 
 	// create current header and call begin block
 	header := tmproto.Header{
@@ -356,8 +356,11 @@ func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
 		chain.ChainID,
 		[]uint64{chain.SenderAccount.GetAccountNumber()},
 		[]uint64{chain.SenderAccount.GetSequence()},
-		chain.SenderPrivKey,
+		true, true, chain.SenderPrivKey,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// NextBlock calls app.Commit()
 	chain.NextBlock()

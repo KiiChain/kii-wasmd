@@ -27,9 +27,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
+	tmcfg "github.com/tendermint/tendermint/config"
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/CosmWasm/wasmd/app"
 	"github.com/CosmWasm/wasmd/app/params"
@@ -108,7 +110,7 @@ func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	ac := appCreator{
 		encCfg: encodingConfig,
 	}
-	server.AddCommands(rootCmd, app.DefaultNodeHome, ac.newApp, ac.appExport, addModuleInitFlags)
+	server.AddCommands(rootCmd, app.DefaultNodeHome, ac.newApp, nil, addModuleInitFlags, []trace.TracerProviderOption{})
 
 	// add keybase, auxiliary RPC, query, and tx child commands
 	rootCmd.AddCommand(
@@ -183,6 +185,7 @@ func (ac appCreator) newApp(
 	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
+	tmConfig *tmcfg.Config,
 	appOpts servertypes.AppOptions,
 ) servertypes.Application {
 	var cache sdk.MultiStorePersistentCache
@@ -218,6 +221,7 @@ func (ac appCreator) newApp(
 	return app.NewWasmApp(logger, db, traceStore, true, skipUpgradeHeights,
 		cast.ToString(appOpts.Get(flags.FlagHome)),
 		cast.ToUint(appOpts.Get(server.FlagInvCheckPeriod)),
+		tmConfig,
 		ac.encCfg,
 		app.GetEnabledProposals(),
 		appOpts,
@@ -261,6 +265,7 @@ func (ac appCreator) appExport(
 		map[int64]bool{},
 		homePath,
 		cast.ToUint(appOpts.Get(server.FlagInvCheckPeriod)),
+		nil,
 		ac.encCfg,
 		app.GetEnabledProposals(),
 		appOpts,

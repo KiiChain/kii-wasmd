@@ -38,6 +38,8 @@ func (chain *TestChain) SendNonDefaultSenderMsgs(senderPrivKey cryptotypes.PrivK
 		chain.ChainID,
 		[]uint64{account.GetAccountNumber()},
 		[]uint64{account.GetSequence()},
+		true,
+		true,
 		senderPrivKey,
 	)
 
