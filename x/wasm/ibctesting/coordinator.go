@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	channeltypes "github.com/cosmos/ibc-go/v4/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v4/modules/core/24-host"
+	ibctesting "github.com/cosmos/ibc-go/v4/testing"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 
@@ -78,8 +78,14 @@ func (coord *Coordinator) UpdateTime() {
 // UpdateTimeForChain updates the clock for a specific chain.
 func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	chain.CurrentHeader.Time = coord.CurrentTime.UTC()
-	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
-	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
+	chain.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Height:             chain.CurrentHeader.Height,
+		AppHash:            chain.CurrentHeader.AppHash,
+		ValidatorsHash:     chain.CurrentHeader.ValidatorsHash,
+		NextValidatorsHash: chain.CurrentHeader.NextValidatorsHash,
+		Time:               chain.CurrentHeader.Time,
+	})
+	chain.App.BeginBlock(chain.App.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
 }
 
 // Setup constructs a TM client, connection, and channel on both chains provided. It will
@@ -193,9 +199,6 @@ func GetChainID(index int) string {
 // CONTRACT: the passed in list of indexes must not contain duplicates
 func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 	for _, chain := range chains {
-		wasmApp := chain.App.(*TestingAppDecorator).WasmApp
-		wasmApp.SetDeliverStateToCommit()
-		wasmApp.Commit(context.Background())
 		chain.NextBlock()
 	}
 	coord.IncrementTime()
@@ -204,7 +207,7 @@ func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 // CommitNBlocks commits n blocks to state and updates the block height by 1 for each commit.
 func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
-		wasmApp := chain.App.(*TestingAppDecorator).WasmApp
+		wasmApp := chain.App
 		wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
 		wasmApp.SetDeliverStateToCommit()
 		chain.App.Commit(context.Background())
@@ -331,7 +334,6 @@ func (coord *Coordinator) TimeoutPendingPackets(path *Path) error {
 		}
 	}
 	src.Chain.PendingSendPackets = nil
-	dest.Chain.PendingAckPackets = nil
 	return nil
 }
 
