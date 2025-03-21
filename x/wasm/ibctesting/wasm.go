@@ -9,9 +9,7 @@ import (
 	"io/ioutil"
 	"strings"
 
-	wasmd "github.com/CosmWasm/wasmd/app"
-
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	ibctesting "github.com/cosmos/ibc-go/v4/testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/golang/protobuf/proto" //nolint
@@ -136,8 +134,5 @@ func (chain *TestChain) parseSDKResultData(r *sdk.Result) sdk.TxMsgData {
 
 // ContractInfo is a helper function to returns the ContractInfo for the given contract address
 func (chain *TestChain) ContractInfo(contractAddr sdk.AccAddress) *types.ContractInfo {
-	type testSupporter interface {
-		TestSupport() *wasmd.TestSupport
-	}
-	return chain.App.(testSupporter).TestSupport().WasmKeeper().GetContractInfo(chain.GetContext(), contractAddr)
+	return chain.App.GetWasmKeeper().GetContractInfo(chain.GetContext(), contractAddr)
 }
