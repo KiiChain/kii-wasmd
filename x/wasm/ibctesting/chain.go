@@ -28,6 +28,7 @@ import (
 	"github.com/cosmos/ibc-go/v4/modules/core/exported"
 	"github.com/cosmos/ibc-go/v4/modules/core/types"
 	ibctmtypes "github.com/cosmos/ibc-go/v4/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/v4/testing"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
@@ -82,6 +83,7 @@ type TestChain struct {
 	SenderAccounts []SenderAccount
 
 	PendingSendPackets []channeltypes.Packet
+	PendingAckPackets  []PacketAck
 }
 
 type PacketAck struct {
@@ -194,7 +196,7 @@ func NewTestChainWithValSet(t *testing.T, coord *Coordinator, chainID string, va
 		senderAccs = append(senderAccs, senderAcc)
 	}
 
-	wasmApp := app.SetupWithGenesisValSet(t, valSet, genAccs, opts, genBals...)
+	wasmApp := app.SetupWithGenesisValSet(t, chainID, valSet, genAccs, opts, genBals...)
 
 	// create current header and call begin block
 	header := tmproto.Header{
@@ -304,9 +306,19 @@ func (chain *TestChain) QueryConsensusStateProof(clientID string) ([]byte, clien
 //
 // CONTRACT: this function must only be called after app.Commit() occurs
 func (chain *TestChain) NextBlock() {
+	// Commit the block
+	_ = chain.App.EndBlock(chain.App.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{})
+
+	chain.App.SetDeliverStateToCommit()
+	chain.App.Commit(context.Background())
+
 	// set the last header to the current header
 	// use nil trusted fields
 	chain.LastHeader = chain.CurrentTMClientHeader()
+
+	// val set changes returned from previous block get applied to the next validators
+	// of this block. See tendermint spec for details.
+	chain.Vals = chain.NextVals
 
 	// increment the current header
 	chain.CurrentHeader = tmproto.Header{
@@ -317,11 +329,20 @@ func (chain *TestChain) NextBlock() {
 		// chains.
 		Time:               chain.CurrentHeader.Time,
 		ValidatorsHash:     chain.Vals.Hash(),
-		NextValidatorsHash: chain.Vals.Hash(),
+		NextValidatorsHash: chain.NextVals.Hash(),
 	}
 
-	wasmApp := chain.App
-	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
+	// Finalize the block
+	chain.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Height:  chain.CurrentHeader.Height,
+		AppHash: chain.CurrentHeader.AppHash,
+		// NOTE: the time is increased by the coordinator to maintain time synchrony amongst
+		// chains.
+		Time:               chain.CurrentHeader.Time,
+		ValidatorsHash:     chain.CurrentHeader.ValidatorsHash,
+		NextValidatorsHash: chain.CurrentHeader.NextValidatorsHash,
+	})
+	chain.App.BeginBlock(chain.App.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
 }
 
 // sendMsgs delivers a transaction through the application without returning the result.
@@ -373,6 +394,11 @@ func (chain *TestChain) CaptureIBCEvents(r *sdk.Result) {
 	if len(toSend) > 0 {
 		// Keep a queue on the chain that we can relay in tests
 		chain.PendingSendPackets = append(chain.PendingSendPackets, toSend...)
+	}
+	toAck := getAckPackets(r.Events)
+	if len(toAck) > 0 {
+		// Keep a queue on the chain that we can relay in tests
+		chain.PendingAckPackets = append(chain.PendingAckPackets, toAck...)
 	}
 }
 
@@ -507,29 +533,28 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		EvidenceHash:       tmhash.Sum([]byte("evidence_hash")),
 		ProposerAddress:    tmValSet.Proposer.Address, //nolint:staticcheck
 	}
+
 	hhash := tmHeader.Hash()
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
-	for i, val := range tmValSet.Validators {
-		voteSet.AddVote(&tmtypes.Vote{
-			Type:             tmproto.PrevoteType,
-			Height:           blockHeight,
-			Round:            1,
-			BlockID:          blockID,
-			Timestamp:        timestamp,
-			ValidatorAddress: val.Address,
-			ValidatorIndex:   int32(i),
-		})
+
+	// MakeCommit expects a signer array in the same order as the validator array.
+	// Thus we iterate over the ordered validator set and construct a signer array
+	// from the signer map in the same order.
+	var signerArr []tmtypes.PrivValidator
+	for _, v := range tmValSet.Validators {
+		signerArr = append(signerArr, signers[v.Address.String()])
 	}
 
-	commit := voteSet.MakeExtendedCommit().ToCommit()
+	commit, err := ibctesting.MakeCommit(blockID, blockHeight, 1, voteSet, signerArr, timestamp)
+	require.NoError(chain.t, err)
 
 	signedHeader := &tmproto.SignedHeader{
 		Header: tmHeader.ToProto(),
 		Commit: commit.ToProto(),
 	}
 
-	valSet, err := tmValSet.ToProto()
+	valSet, err = tmValSet.ToProto()
 	if err != nil {
 		panic(err)
 	}

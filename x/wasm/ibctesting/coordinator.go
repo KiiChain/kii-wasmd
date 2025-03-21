@@ -78,8 +78,14 @@ func (coord *Coordinator) UpdateTime() {
 // UpdateTimeForChain updates the clock for a specific chain.
 func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	chain.CurrentHeader.Time = coord.CurrentTime.UTC()
-	wasmApp := chain.App
-	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
+	chain.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Height:             chain.CurrentHeader.Height,
+		AppHash:            chain.CurrentHeader.AppHash,
+		ValidatorsHash:     chain.CurrentHeader.ValidatorsHash,
+		NextValidatorsHash: chain.CurrentHeader.NextValidatorsHash,
+		Time:               chain.CurrentHeader.Time,
+	})
+	chain.App.BeginBlock(chain.App.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
 }
 
 // Setup constructs a TM client, connection, and channel on both chains provided. It will
@@ -193,9 +199,6 @@ func GetChainID(index int) string {
 // CONTRACT: the passed in list of indexes must not contain duplicates
 func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 	for _, chain := range chains {
-		wasmApp := chain.App
-		wasmApp.SetDeliverStateToCommit()
-		wasmApp.Commit(context.Background())
 		chain.NextBlock()
 	}
 	coord.IncrementTime()
@@ -264,23 +267,44 @@ func (coord *Coordinator) ChanOpenInitOnBothChains(path *Path) error {
 func (coord *Coordinator) RelayAndAckPendingPackets(path *Path) error {
 	// get all the packet to relay src->dest
 	src := path.EndpointA
-	coord.t.Logf("Relay: %d Packets A->B, %d Packets B->A\n", len(src.Chain.PendingSendPackets), len(path.EndpointB.Chain.PendingSendPackets))
-	for i, v := range src.Chain.PendingSendPackets {
-		err := path.RelayPacket(v, nil)
-		if err != nil {
-			return err
-		}
-		src.Chain.PendingSendPackets = append(src.Chain.PendingSendPackets[0:i], src.Chain.PendingSendPackets[i+1:]...)
-	}
+	dest := path.EndpointB
+	toSend := src.Chain.PendingSendPackets
+	coord.t.Logf("Relay %d Packets A->B\n", len(toSend))
 
-	src = path.EndpointB
-	for i, v := range src.Chain.PendingSendPackets {
-		err := path.RelayPacket(v, nil)
+	// send this to the other side
+	coord.IncrementTime()
+	coord.CommitBlock(src.Chain)
+	err := dest.UpdateClient()
+	if err != nil {
+		return err
+	}
+	for _, packet := range toSend {
+		err = dest.RecvPacket(packet)
 		if err != nil {
 			return err
 		}
-		src.Chain.PendingSendPackets = append(src.Chain.PendingSendPackets[0:i], src.Chain.PendingSendPackets[i+1:]...)
 	}
+	src.Chain.PendingSendPackets = nil
+
+	// get all the acks to relay dest->src
+	toAck := dest.Chain.PendingAckPackets
+	// TODO: assert >= len(toSend)?
+	coord.t.Logf("Ack %d Packets B->A\n", len(toAck))
+
+	// send the ack back from dest -> src
+	coord.IncrementTime()
+	coord.CommitBlock(dest.Chain)
+	err = src.UpdateClient()
+	if err != nil {
+		return err
+	}
+	for _, ack := range toAck {
+		err = src.AcknowledgePacket(ack.Packet, ack.Ack)
+		if err != nil {
+			return err
+		}
+	}
+	dest.Chain.PendingAckPackets = nil
 	return nil
 }
 
